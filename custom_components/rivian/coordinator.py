@@ -21,6 +21,7 @@ from rivian.exceptions import (
 from rivian.parallax import (
     decode_parallax_message,
     encode_frunk,
+    encode_liftgate,
     encode_lock,
     encode_unlock,
     encode_windows,
@@ -829,6 +830,19 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             VehicleCommand.PANIC_OFF: "security.alarm.disable_panic",
         }
         features = vehicle.get("supported_features", [])
+        if "LIFTGATE_CMD" in features:
+            body_commands.update(
+                {
+                    VehicleCommand.OPEN_LIFTGATE_UNLATCH_TAILGATE: (
+                        "body.closures.open",
+                        encode_liftgate,
+                    ),
+                    VehicleCommand.CLOSE_LIFTGATE: (
+                        "body.closures.close",
+                        encode_liftgate,
+                    ),
+                }
+            )
         if command in body_commands and "PVS_BD_CMD" in features:
             rvm, encoder = body_commands[command]
             payload = encoder()

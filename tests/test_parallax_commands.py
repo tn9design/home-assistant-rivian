@@ -111,13 +111,25 @@ async def test_operation_error_never_falls_back_to_legacy(vehicle):
         ("CLOSE_ALL_WINDOWS", "body.closures.close", "encode_windows", "PVS_BD_CMD"),
         ("LOCK_ALL_CLOSURES_FEEDBACK", "body.locks.lock", "encode_lock", "PVS_BD_CMD"),
         ("UNLOCK_ALL_CLOSURES", "body.locks.unlock", "encode_unlock", "PVS_BD_CMD"),
-        ("ENABLE_GEAR_GUARD_VIDEO", "security.video_monitoring.enable_video_monitoring", None, "PVS_SEC_CMD"),
-        ("DISABLE_GEAR_GUARD_VIDEO", "security.video_monitoring.disable_video_monitoring", None, "PVS_SEC_CMD"),
+        (
+            "ENABLE_GEAR_GUARD_VIDEO",
+            "security.video_monitoring.enable_video_monitoring",
+            None,
+            "PVS_SEC_CMD",
+        ),
+        (
+            "DISABLE_GEAR_GUARD_VIDEO",
+            "security.video_monitoring.disable_video_monitoring",
+            None,
+            "PVS_SEC_CMD",
+        ),
         ("PANIC_ON", "security.alarm.enable_panic", None, "PVS_SEC_CMD"),
         ("PANIC_OFF", "security.alarm.disable_panic", None, "PVS_SEC_CMD"),
     ],
 )
-async def test_body_and_security_routing(vehicle, monkeypatch, command, rvm, encoder_name, feature):
+async def test_body_and_security_routing(
+    vehicle, monkeypatch, command, rvm, encoder_name, feature
+):
     coor, details, execute = vehicle
     payload = b"closure" if encoder_name else b""
     if encoder_name:
@@ -131,3 +143,48 @@ async def test_body_and_security_routing(vehicle, monkeypatch, command, rvm, enc
     execute.assert_awaited_once()
     assert execute.await_args.args == (coor.api, "vehicle", rvm, payload)
     coor.api.send_vehicle_command.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "command,rvm",
+    [
+        ("OPEN_LIFTGATE_UNLATCH_TAILGATE", "body.closures.open"),
+        ("CLOSE_LIFTGATE", "body.closures.close"),
+    ],
+)
+@pytest.mark.parametrize(
+    "features,signed",
+    [
+        ([], False),
+        (["PVS_BD_CMD"], False),
+        (["LIFTGATE_CMD"], False),
+        (["PVS_BD_CMD", "LIFTGATE_CMD"], True),
+    ],
+)
+async def test_liftgate_requires_both_features(
+    vehicle, monkeypatch, command, rvm, features, signed
+):
+    coor, details, execute = vehicle
+    details["supported_features"] = features
+    monkeypatch.setattr(module, "encode_liftgate", lambda: bytes.fromhex("0a0107"))
+    await coor.send_vehicle_command(command)
+    if signed:
+        execute.assert_awaited_once()
+        assert execute.await_args.args == (
+            coor.api,
+            "vehicle",
+            rvm,
+            bytes.fromhex("0a0107"),
+        )
+        coor.api.send_vehicle_command.assert_not_awaited()
+    else:
+        execute.assert_not_awaited()
+        coor.api.send_vehicle_command.assert_awaited_once()
+
+
+async def test_explicit_wake_keeps_existing_command_path(vehicle):
+    coor, details, execute = vehicle
+    details["supported_features"] = ["PVS_BD_CMD", "LIFTGATE_CMD"]
+    await coor.send_vehicle_command("WAKE_VEHICLE")
+    execute.assert_not_awaited()
+    coor.api.send_vehicle_command.assert_awaited_once()
